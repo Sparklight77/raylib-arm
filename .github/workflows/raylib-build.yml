@@ -1,4 +1,4 @@
-name: Cross-Build Raylib ARMv7 + ARM64 (DRM & DESKTOP)
+name: Cross-Build Raylib ARMv7 + ARM64 (DRM)
 
 on:
   push:
@@ -11,7 +11,6 @@ jobs:
     strategy:
       matrix:
         arch: [armv7, arm64]
-        platform: [PLATFORM_DRM, PLATFORM_DESKTOP]
         include:
           - arch: armv7
             toolchain: Toolchain-armv7-linux-gnueabihf.cmake
@@ -20,7 +19,7 @@ jobs:
             toolchain: Toolchain-aarch64-linux-gnu.cmake
             triple: aarch64-linux-gnu
 
-    name: Build raylib for ${{ matrix.arch }}-${{ matrix.platform }}
+    name: Build raylib for ${{ matrix.arch }}
     steps:
       - name: Checkout this repo (toolchain files)
         uses: actions/checkout@v4
@@ -28,48 +27,23 @@ jobs:
       - name: Clone raylib (shallow)
         run: git clone --depth 1 https://github.com/raysan5/raylib.git
 
-      - name: Install dependencies + fetch libx11 manually
+      - name: Install dependencies
         run: |
-          set -e
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          sudo apt-get install -y \
             cmake ninja-build git tar \
             gcc-${{ matrix.triple }} g++-${{ matrix.triple }} \
-            libdrm-dev libgbm-dev libinput-dev libgles2-mesa-dev \
-            dpkg-dev wget || \
-          if [ $? -eq 8 ]; then echo "Ignoring harmless apt exit code 8 (service restart issues)."; else exit $?; fi
+            libdrm-dev libgbm-dev libinput-dev libgles2-mesa-dev
 
-          ARCH=${{ matrix.arch }}
-          if [ "$ARCH" = "armv7" ]; then
-            LIBX11_URL="http://ports.ubuntu.com/pool/main/libx/libx11/libx11-dev_1.8.4-2ubuntu1_armhf.deb"
-          elif [ "$ARCH" = "arm64" ]; then
-            LIBX11_URL="http://ports.ubuntu.com/pool/main/libx/libx11/libx11-dev_1.8.4-2ubuntu1_arm64.deb"
-          fi
-
-          mkdir -p x11libs
-          wget -q $LIBX11_URL -O libx11.deb
-          dpkg-deb -x libx11.deb x11libs
-
-          echo "CMAKE_INCLUDE_PATH=$(pwd)/x11libs/usr/include" >> $GITHUB_ENV
-          echo "CMAKE_LIBRARY_PATH=$(pwd)/x11libs/usr/lib/${{ matrix.triple }}" >> $GITHUB_ENV
-
-      - name: Build raylib for ${{ matrix.arch }}-${{ matrix.platform }}
+      - name: Build raylib for ${{ matrix.arch }}
         run: |
-          BUILD_DIR=build-${{ matrix.arch }}-${{ matrix.platform }}
-          mkdir $BUILD_DIR
-          cd $BUILD_DIR
-
-          PLATFORM_FLAGS="-DPLATFORM=${{ matrix.platform }}"
-          if [ "${{ matrix.platform }}" = "PLATFORM_DRM" ]; then
-            PLATFORM_FLAGS="$PLATFORM_FLAGS -DUSE_OPENGL_ES=ON"
-          fi
-
+          mkdir build-${{ matrix.arch }}
+          cd build-${{ matrix.arch }}
           cmake ../raylib \
             -DCMAKE_TOOLCHAIN_FILE=../cmake/${{ matrix.toolchain }} \
             -DCMAKE_BUILD_TYPE=Release \
-            $PLATFORM_FLAGS \
-            -DCMAKE_INCLUDE_PATH="$CMAKE_INCLUDE_PATH" \
-            -DCMAKE_LIBRARY_PATH="$CMAKE_LIBRARY_PATH" \
+            -DPLATFORM=DRM \
+            -DUSE_OPENGL_ES=ON \
             -DBUILD_SHARED_LIBS=OFF \
             -DBUILD_EXAMPLES=OFF \
             -DBUILD_GAMES=OFF \
@@ -78,19 +52,17 @@ jobs:
 
       - name: Prepare SDK package
         run: |
-          PLATFORM_LOWER=$(echo "${{ matrix.platform }}" | tr '[:upper:]' '[:lower:]' | sed 's/platform_//')
-          SDK_DIR=raylib-${{ matrix.arch }}-${PLATFORM_LOWER}
-          mkdir -p $SDK_DIR/include
-          mkdir -p $SDK_DIR/lib
-          cp -r raylib/src/*.h $SDK_DIR/include/
-          cp build-${{ matrix.arch }}-${{ matrix.platform }}/raylib/libraylib.a $SDK_DIR/lib/
+          mkdir -p raylib-${{ matrix.arch }}/include
+          mkdir -p raylib-${{ matrix.arch }}/lib
+          cp -r raylib/src/*.h raylib-${{ matrix.arch }}/include/
+          cp build-${{ matrix.arch }}/raylib/libraylib.a raylib-${{ matrix.arch }}/lib/
           DATE=$(date +"%d-%m-%Y")
-          FILENAME="${SDK_DIR}-${DATE}.tar.gz"
-          tar -czf "$FILENAME" $SDK_DIR
+          FILENAME="Raylib-${{ matrix.arch }}-DRM (${DATE}).tar.gz"
+          tar -czf "$FILENAME" raylib-${{ matrix.arch }}
           echo "SDK_FILENAME=$FILENAME" >> $GITHUB_ENV
 
       - name: Upload SDK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.SDK_FILENAME }}
+          name: Raylib-${{ matrix.arch }}-DRM SDK
           path: ${{ env.SDK_FILENAME }}
